@@ -1,0 +1,87 @@
+.project {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    width: 1200px;
+    margin: auto;
+}
+
+.map {
+    height: 400px;
+    width: 900px;
+    display: inline-block;
+}
+
+.range-slider {
+    width: 100%;
+}
+
+.barchart {
+    width: 440px;
+    height: 300px;
+    display: inline-block;
+    flex-grow: 1;
+}
+
+.timeseries {
+    width: 500px;
+    height: 300px;
+}
+
+.timeseries-legend {
+    width: 150px;
+    height: 300px;
+}
+
+.charts {
+    display: flex;
+    justify-content: space-between;
+    width: 1200px;
+    margin: auto;
+}
+
+.filter-container {
+    display: inline-block;
+    width: 300px;
+    margin-top: 30px;
+}
+
+.filter {
+    margin: 20px 0 20px 0;
+}
+
+.athlete-table-container {
+    max-height: 600px;
+    overflow-y: auto;
+    width: 90%;
+    margin: auto auto 30px;
+
+}
+
+.athlete-table {
+    width: 100%;
+}
+
+.athlete-table th {
+    cursor: pointer;
+}
+
+.athlete-table tr td,th {
+    text-align: center;
+}
+
+.athlete-table tr:nth-child(even) {
+    background-color: #f8f8f8;
+}
+
+.athlete-table tr:nth-child(odd) {
+    background-color: #ebebeb;
+}
+
+.discipline img {
+    width: 35px;
+}
+
+.medal img {
+    width: 20px;
+}

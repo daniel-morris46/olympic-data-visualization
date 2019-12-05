@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Project</title>
+
+    <!-- Bootstrap -->
+    <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+
+    <!-- Knockout -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/knockout/3.5.0/knockout-min.js" crossorigin="anonymous"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/5.7.0/d3.min.js" integrity="sha256-va1Vhe+all/yVFhzgwmwBgWMVfLHjXlNJfvsrjUBRgk=" crossorigin="anonymous"></script>
+
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+    <link rel="stylesheet" type="text/css" href="styles.css">
+
+    <!--Plugin CSS file with desired skin-->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/ion-rangeslider/2.3.0/css/ion.rangeSlider.min.css"/>
+
+    <!--jQuery-->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+
+    <!--Plugin JavaScript file-->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ion-rangeslider/2.3.0/js/ion.rangeSlider.min.js"></script>
+
+
+
+</head>
+
+<body>
+
+  <div class="project">
+
+      <svg class="map"></svg>
+      <div class="filter-container">
+          <div class="range-slider">
+              <input type="text" class="js-range-slider"/>
+          </div>
+          <select class="form-control filter" data-bind="options: medals, value: selectedMedal, event:{ change: filterSelected}"></select>
+          <select class="form-control filter" data-bind="options: genders, value: selectedGender, optionsCaption: 'Gender', event:{ change: filterSelected}"></select>
+          <select class="form-control filter" data-bind="options: sports, value: selectedSport, optionsCaption: 'Sport', event:{ change: filterSelected}"></select>
+          <select class="form-control filter" data-bind="visible: selectedSport(), options: disciplines, value: selectedDiscipline, optionsCaption: 'Discipline', event:{ change: filterSelected}"></select>
+          <select class="form-control filter" data-bind="visible: selectedDiscipline(), options: events, value: selectedEvent, optionsCaption: 'Event', event:{ change: filterSelected}"></select>
+      </div>
+  </div>
+  <div class="charts">
+      <svg class="barchart"></svg>
+      <svg class="timeseries"></svg>
+      <svg class="timeseries-legend"></svg>
+  </div>
+  <div class="athlete-table-container">
+      <table class="athlete-table">
+          <thead>
+            <th data-bind="click: sortSelectedData.bind($data, 'NOC')">Country</th>
+            <th data-bind="click: sortSelectedData.bind($data, 'Athlete')">Athlete</th>
+            <th data-bind="click: sortSelectedData.bind($data, 'Medal')">Medal</th>
+            <th data-bind="click: sortSelectedData.bind($data, 'Discipline')">Discipline</th>
+            <th data-bind="click: sortSelectedData.bind($data, 'Event')">Event</th>
+            <th data-bind="click: sortSelectedData.bind($data, 'Gender')">Gender</th>
+            <th data-bind="click: sortSelectedData.bind($data, 'Edition')">Locaiton</th>
+          </thead>
+          <tbody data-bind="foreach: tableData">
+          <tr>
+              <td><span data-bind="text: hashCodeToCountry[NOC]" title="Country"></span></td>
+              <td><span data-bind="text: Athlete" title="Name"></span></td>
+              <td class="medal"><img data-bind="attr:{src: 'MedalIcons/'+Medal+'.png', title: Medal+' Medal'}"></td>
+              <td class="discipline"><img data-bind="attr:{src: getDisciplineIcon(Discipline), title: Discipline}"></td>
+              <td><span data-bind="text: Event" title="Event"></span></td>
+              <td><span data-bind="text: Gender" title="Gender"></span></td>
+              <td><span title="Location"><span data-bind="text: City"></span> <span data-bind="text: Edition"></span></span></td>
+          </tr>
+          </tbody>
+      </table>
+  </div>
+
+  <script type="text/javascript">
+
+      $('.athlete-table-container').on('scroll', function() {
+          if($(this).scrollTop() + $(this).innerHeight() >= $(this)[0].scrollHeight) {
+              generateMoreTableData();
+          }
+      });
+
+      var svg;
+      var barchart;
+      var timeseries;
+      var timeseriesLegend;
+      var dataset;
+      var dataCodes;
+      var dataJSON;
+
+      // the dataset filtered by the dropdowns and medal selection
+      var filteredData = ko.observableArray([]);
+
+      // the dataset filtered by the dropdowns and medal selection and map country selection
+      var selectedData = ko.observableArray([]);
+
+      // the table data grows once the user scrolls to the bottom of the table
+      var tableDataCountDefault = 100;
+      var tableDataCountDelta = 100;
+      var tableDataCount = ko.observable(tableDataCountDefault);
+      var tableData = ko.computed(() => {
+          return selectedData().slice(0, tableDataCount());
+      });
+
+      // used to store a reference of sports > disciplines > events
+      var sportsReference = ko.observable({});
+
+      // used to store selected filters
+      var selectedGender = ko.observable();
+      var selectedMedal = ko.observable("Total");
+      var selectedSport = ko.observable();
+      var selectedDiscipline = ko.observable();
+      var selectedEvent = ko.observable();
+      var selectedCountries = ko.observableArray([]);
+      var maxSelectableCountries = 6;
+
+      // used to determine which file to load data from and helps with data ranges
+      var startYear = 1896;
+      var endYear = 2008;
+
+      var selectedStartYear = startYear;
+      var selectedEndYear = endYear;
+
+
+      // used to calculate dropdown options based on sportsReference and selected filters
+      var genders = ko.observable([]);
+      var medals = ko.observable(['Total', 'Gold', 'Silver', 'Bronze']);
+      var sports = ko.computed(() => {
+          return Object.keys(sportsReference()).sort();
+      });
+      var disciplines = ko.computed(() => {
+          return selectedSport() ? Object.keys(sportsReference()[selectedSport()]).sort() : [];
+      });
+      var events = ko.computed(() => {
+          return selectedDiscipline() ? [...sportsReference()[selectedSport()][selectedDiscipline()]].sort() : [];
+      });
+
+      //make it easy to convert country names to country codes, and visa versa
+      var hashCodeToCountry = {};
+
+      //used to store the sorting direction of each column in the athlete table
+      var sortingDirection = {};
+
+      var width = 900;
+      var height = 400;
+
+      initializeSlider();
+
+
+      //read in our initial datasets, (olympic medals, country codes, geomap)
+      d3.csv("Olympic" + startYear + "-" + endYear + ".csv").then(function (data) {
+          dataset = data;
+          filteredData(dataset);
+
+          d3.csv("countries_codes_and_coordinates.csv").then(function (data) {
+              dataCodes = data;
+
+              for (var i = 0; i < dataCodes.length; i++) {
+                  //weird space appearing at the start of the country code for some reason so delete it
+                  let countryCode = dataCodes[i]["Alpha-3"].slice(1);
+                  hashCodeToCountry[countryCode] = dataCodes[i]["Country"];
+              }
+
+              d3.json("world.geojson").then(function (json) {
+                  dataJSON = json;
+                  generateFilterOptions(dataset);
+                  generateVisualization(filteredData(), dataCodes, dataJSON, selectedStartYear, selectedEndYear);
+              });
+          });
+      });
+
+
+
+      // called every time a filter is changed. redraws the visualization after filtering the dataset
+      function filterSelected() {
+          filteredData(dataset.filter((data) => {
+              if (selectedMedal() && selectedMedal() !== "Total" && data['Medal'] !== selectedMedal()) return false;
+              if (selectedGender() && data['Gender'] !== selectedGender()) return false;
+              if (selectedSport() && data['Sport'] !== selectedSport()) return false;
+              if (selectedDiscipline() && data['Discipline'] !== selectedDiscipline()) return false;
+              if (selectedEvent() && data['Event'] !== selectedEvent()) return false;
+              if (Number(data['Edition']) < selectedStartYear) return false;
+              if (Number(data['Edition']) > selectedEndYear) return false;
+              return true;
+          }));
+          countrySelected();
+
+          resetVisualization();
+          generateVisualization(filteredData(), dataCodes, dataJSON, selectedStartYear, selectedEndYear);
+      }
+
+      function resetVisualization() {
+          if (svg) svg.remove();
+          if (barchart) barchart.remove();
+          if (timeseries) timeseries.remove();
+          if (timeseriesLegend) timeseriesLegend.remove();
+          resetTableScroll();
+      }
+
+      function resetTableScroll() {
+          $('.athlete-table-container').scrollTop(0);
+          tableDataCount(tableDataCountDefault);
+      }
+
+      function countrySelected() {
+          selectedData(filteredData().filter(data => {
+              return selectedCountries().includes(hashCodeToCountry[data['NOC']]);
+          }));
+      }
+
+      function generateMoreTableData() {
+          if (tableDataCount() < selectedData().length) {
+              tableDataCount(tableDataCount() + tableDataCountDelta)
+          }
+      }
+
+      function getDisciplineIcon(discipline) {
+          let disciplineIconCorrections = {
+              'Canoe / Kayak F': 'Canoe',
+              'Canoe / Kayak S': 'Canoe',
+              'Jeu de Paume': 'Tennis',
+              'Ice Hockey': 'Hockey',
+              'Polo': 'Water polo',
+              'Rugby': '',
+              'Water Motorspor': 'Swimming',
+              'Rackets': 'Tennis',
+              'Cricket': 'Baseball'
+          };
+          if (disciplineIconCorrections[discipline]) {
+              discipline = disciplineIconCorrections[discipline]
+          }
+          return 'DisciplineIcons/' + discipline + '.png';
+      }
+
+      function sortSelectedData(property) {
+          let direction;
+          if (sortingDirection[property] && sortingDirection[property] === 'ascending') {
+              direction = 'descending';
+              sortingDirection[property] = direction;
+
+          } else {
+              direction = 'ascending';
+              sortingDirection[property] = direction;
+          }
+
+          selectedData(selectedData().sort((a, b) => {
+              if (direction === 'descending') {
+                  return a[property] >= b[property] ? 1 : -1;
+              } else {
+                  return a[property] <= b[property] ? 1 : -1;
+              }
+          }));
+      }
+
+
+
+      function initializeSlider() {
+          $(".js-range-slider").ionRangeSlider({
+              skin: "round",
+              type: "double",
+              min: startYear,
+              max: endYear,
+              from: selectedStartYear,
+              to: selectedEndYear,
+              step: 4,
+              grid: true,
+              onChange: function (d) {
+                  resetVisualization();
+                  selectedStartYear = d.from;
+                  selectedEndYear = d.to;
+                  filterSelected();
+              }
+          });
+      }
+
+      function generateFilterOptions(dataset) {
+          genders(['Men', 'Women']);
+          let tempSports = {};
+          dataset.forEach((data) => {
+            if (!tempSports[data['Sport']]) tempSports[data['Sport']] = {};
+            if (!tempSports[data['Sport']][data['Discipline']]) tempSports[data['Sport']][data['Discipline']] = new Set();
+            tempSports[data['Sport']][data['Discipline']].add(data['Event'])
+          });
+          sportsReference(tempSports);
+      }
+
+      function nextMedalSelection(currentMedal) {
+          if (currentMedal === "Total") {
+              return "Gold";
+          } else if (currentMedal === "Gold") {
+              return "Silver";
+          } else if (currentMedal === "Silver") {
+              return "Bronze";
+          } else {
+              return "Total";
+          }
+      }
+
+
+
+      //main image generation
+      /*
+      dataset: main olympic medals dataset
+      dataCodes: dataset to aid in converting country names to country codes and visa versa
+      dataJSON: geographic dataset to draw the world map
+      selMinYear -> the minimum year for the year slider
+      selMaxYear -> teh maximum year for the year slider
+      */
+      function generateVisualization(dataset, dataCodes, dataJSON, selMinYear, selMaxYear) {
+          //create svg element
+          svg = d3.select(".map")
+              .append("svg")
+              .attr("width", width)
+              .attr("height", height);
+
+
+
+
+          //use projection as seen in lab 4/5
+          var path = d3.geoPath();
+          var projection = d3.geoMercator()
+              .center([0, 0])
+              .scale(90)
+              .translate([300, 275]);
+
+
+          //Define quantized scale to sort data values into buckets of color based on selected medal type
+          var colorQuantiles;
+          const numOfQuantiles = 5;
+
+          //have different color buckets for each type of medal, (0 = Total, 1 = Gold, 2 = Silver, 3 =Bronze)
+          if (selectedMedal() === "Total") {
+              colorQuantiles = ["rgb(237,248,233)", "rgb(186,228,179)", "rgb(116,196,118)", "rgb(49,163,84)", "rgb(0,109,44)"];
+          } else if (selectedMedal() === "Gold") {
+              colorQuantiles = ["rgb(252,248,222)", "rgb(242, 236, 194)", "rgb(245,235,181)", "rgb(252, 229, 104)", "rgb(255,215,0)"];
+          } else if (selectedMedal() === "Silver") {
+              colorQuantiles = ["rgb(230, 230, 230)", "rgb(219, 219, 219)", "rgb(192, 192, 192)", "rgb(158, 158, 158)", "rgb(110, 110, 110)"];
+          } else if (selectedMedal() === "Bronze") {
+              colorQuantiles = ["rgb(252,248,222)", "rgb(237, 210, 183)", "rgb(224, 183, 141)", "rgb(219, 154, 90)", "rgb(205,127,50)"];
+          }
+
+          //remember the median bucket color so we can color the year slider appropriately
+          var remSliderColor = colorQuantiles[2];
+
+          var color = d3.scaleQuantize()
+              .range(colorQuantiles);
+
+
+          //count the frequency of medals for every medalling country
+          var hashFreqs = new Object();
+
+          var rangeOfYears = [];
+
+          //add in all of the valid years selected
+          for (var i = selMinYear; i <= selMaxYear; i += 4){
+            rangeOfYears.push(i);
+          }
+
+
+          //if we have selected countries on the map, keep track of their medal counts
+          goldFreqs = new Object();
+          silverFreqs = new Object();
+          bronzeFreqs = new Object();
+          totalFreqs = new Object();
+
+
+          for (var i = 0; i < dataset.length; i++) {
+              var tempCountry = hashCodeToCountry[dataset[i]["NOC"]];
+
+              if (rangeOfYears.includes(parseInt(dataset[i]["Edition"]))) {
+                  //Do Nothing
+
+
+                  var rightYear = 0;
+                  //check if the correct year is being used
+                  if (parseInt(dataset[i]["Edition"]) >= selMinYear && parseInt(dataset[i]["Edition"]) <= selMaxYear) {
+                    rightYear = 1;
+                  }
+
+                  //if the current country is a selected one, add to its respective medal color frequency tracker
+                  if (selectedCountries().includes(tempCountry)){
+                      if (dataset[i]["Medal"] == "Gold"){
+                          if (tempCountry in goldFreqs) {
+                              goldFreqs[tempCountry] += rightYear;
+                          } else {
+                              goldFreqs[tempCountry] = rightYear;
+                          }
+                      } else if (dataset[i]["Medal"] == "Silver"){
+                          if (tempCountry in silverFreqs) {
+                              silverFreqs[tempCountry] += rightYear;
+                          } else {
+                              silverFreqs[tempCountry] = rightYear;
+                          }
+                      } else {
+                          if (tempCountry in bronzeFreqs) {
+                              bronzeFreqs[tempCountry] += rightYear;
+                          } else {
+                              bronzeFreqs[tempCountry] = rightYear;
+                          }
+                      }
+
+                      //kep track of the total medals attained by each selected country
+                      if (tempCountry in totalFreqs) {
+                        totalFreqs[tempCountry] += rightYear;
+                      } else {
+                        totalFreqs[tempCountry] = rightYear;
+                      }
+
+                  }
+
+
+              //check if the correct year is being used
+              //if (parseInt(dataset[i]["Edition"]) >= selMinYear && parseInt(dataset[i]["Edition"]) <= selMaxYear) {
+
+                  //take into account which medal we are representing currently, and if the current medal is legal in this consideration
+                  if (selectedMedal() === "Total" || selectedMedal() === dataset[i]["Medal"]) {
+
+                      //if already in the object, simply add to the total. else create a new atttribute
+                      if (tempCountry in hashFreqs) {
+                          hashFreqs[tempCountry] += 1;
+                      } else {
+                          hashFreqs[tempCountry] = 1;
+                      }
+                  }
+              //}
+              }
+          }
+
+
+          //add in countries scoring zero medals to selected country objects
+          for (var i = 0; i < selectedCountries().length; i++){
+            if (!(selectedCountries()[i] in totalFreqs)){
+              totalFreqs[selectedCountries()[i]] = 0;
+            }
+            if (!(selectedCountries()[i] in goldFreqs)){
+              goldFreqs[selectedCountries()[i]] = 0;
+            }
+            if (!(selectedCountries()[i] in silverFreqs)){
+              silverFreqs[selectedCountries()[i]] = 0;
+            }
+            if (!(selectedCountries()[i] in bronzeFreqs)){
+              bronzeFreqs[selectedCountries()[i]] = 0;
+            }
+          }
+
+          var freqs = Object.values(hashFreqs);
+          var max = Math.max(...freqs);
+          var min = Math.min(...freqs);
+
+          //create a domain of colors for each frequency
+          //color.domain([min, max]);
+
+          var lastQuartNum
+
+          //calculate the value ranges to be used in the legend
+          percentileNums = [];
+          for (var i = 1; i <= numOfQuantiles; i++) {
+              var perc = Quartile(freqs, (i / numOfQuantiles).toFixed(2));
+              //check if the percentile was defined or not, if not then use the last recorded value
+              if (perc == null){
+                percentileNums.push(lastQuartNum);
+              } else {
+                percentileNums.push(perc);
+                lastQuartNum = perc;
+              }
+          }
+          //add a zero to the front so we can build the legend more easily
+          percentileNums.unshift(0);
+
+          //Draw the Legend///////////////////////////////////////////////////
+          // Legend
+          const sizeOfLegendSquare = 20;
+          const legendXValue = 660;
+          const legendYValue = 110;
+
+
+          for (var i = 0; i <= numOfQuantiles; i++) {
+              svg.append("rect")
+                  .attr("x", legendXValue)
+                  .attr("y", function () {
+                      return legendYValue + i * (sizeOfLegendSquare + 5)
+                  }) // 100 is where the first dot appears. 25 is the distance between dots
+                  .attr("width", sizeOfLegendSquare)
+                  .attr("height", sizeOfLegendSquare)
+                  .style("stroke", "black")
+                  .style("stroke-width", 0.1)
+                  .style("fill", function () {
+                      if (i == 0) {
+                          return "white";
+                      }
+                      return colorQuantiles[i - 1];
+                  })
+          }
+
+          //add in labels for each of the scale rectangles
+          for (var i = 0; i <= numOfQuantiles; i++) {
+              svg.append("text")
+                  .attr("x", legendXValue + sizeOfLegendSquare * 1.2)
+                  .attr("y", function () {
+                      return legendYValue + i * (sizeOfLegendSquare + 5) + (sizeOfLegendSquare / 2)
+                  })
+                  .style("fill", "black")
+                  .text(function () {
+                      if (i == 0) {
+                          return "0";
+                      } else if (i == numOfQuantiles) {
+                          return ">".concat(Math.floor(percentileNums[i - 1]).toString());
+                      } else {
+                          if (Math.floor(percentileNums[i - 1]) == Math.floor(percentileNums[i])){
+                            return (Math.floor(percentileNums[i - 1]).toString()).concat("-".concat(Math.floor(percentileNums[i]).toString()));
+                          }
+                          return (Math.floor(percentileNums[i - 1] + 1).toString()).concat("-".concat(Math.floor(percentileNums[i]).toString()));
+                      }
+
+                  })
+                  .attr("text-anchor", "left")
+                  .style("alignment-baseline", "middle")
+          }
+
+
+          //Draw the medal selector circle/////////////////////////////////////////
+          svg.append("circle")
+              .attr("cx", legendXValue + 25)
+              .attr("cy", legendYValue - 50)
+              .attr("r", 25)
+              .style("stroke", "black")
+              .style("cursor", "pointer")
+              .style("stroke-weight", 0.1)
+              .style("fill", function (d) {
+                  //set the color of the medal based what medal is selected
+                  let medalCssColors = {
+                      "Total": "green",
+                      "Gold": "gold",
+                      "Silver": "silver",
+                      "Bronze": "#cd7f32"
+                  };
+                  return medalCssColors[selectedMedal()];
+              })
+              .on("click", function (d) {
+                  //update the svg depending on which medal is selected
+                  resetVisualization();
+                  selectedMedal(nextMedalSelection(selectedMedal()));
+                  filterSelected();
+              });
+
+
+          // Draw the map//////////////////////////////////////////////
+          var rememberFill;
+
+          //create a path object in the svg according to the JSON data as seen in lab 5
+          svg.selectAll("path")
+              .data(dataJSON.features)
+              .enter()
+              .append("path")
+              .attr("d", path)
+              // draw each country
+              .attr("stroke", "black")
+              .attr("cursor", "pointer")
+              .attr("stroke-width", 0.25)
+              .attr("d", d3.geoPath()
+                  .projection(projection)
+              )
+              // set the color of each country
+              .attr("fill", function (d) {
+                  if (selectedCountries().includes(d.properties.name)){
+                     return "blue";
+                  } else if (d.properties.name in hashFreqs) {
+                      //return color(hashFreqs[d.properties.name]);
+                      //for some reason that didnt work so manually set
+                      if (hashFreqs[d.properties.name] > percentileNums[4]){
+                        return colorQuantiles[4];
+                      }else if (hashFreqs[d.properties.name] > percentileNums[3]){
+                        return colorQuantiles[3];
+                      }else if (hashFreqs[d.properties.name] > percentileNums[2]){
+                        return colorQuantiles[2];
+                      }else if (hashFreqs[d.properties.name] > percentileNums[1]){
+                        return colorQuantiles[1];
+                      }else if (hashFreqs[d.properties.name] > percentileNums[0]){
+                        return colorQuantiles[0];
+                      } else {
+                        return "rgb(255,255,255)";
+                      }
+
+                  } else {
+                      return "rgb(255,255,255)";
+                  }
+
+              })
+              .text(function (d) {
+                  return d.properties.name;
+              })
+              .on("click", function (d) {
+                  let countryName = d.properties.name;
+
+                  if (selectedCountries().includes(countryName)) {
+                      selectedCountries.remove(countryName);
+                  } else {
+                      if (selectedCountries().length >= maxSelectableCountries) {
+                          selectedCountries(selectedCountries().splice(1));
+                      }
+                      selectedCountries.push(countryName)
+                  }
+                  countrySelected();
+                  //update the visualization
+                  resetVisualization();
+                  generateVisualization(filteredData(), dataCodes, dataJSON, selMinYear, selMaxYear);
+              })
+              .on("mouseover", function (d) {
+                  //make changes to the current country being hovered over, ie this
+                  d3.select(this)
+                      .attr("fill", function () {
+                          //remmeber what color the region was for mouseOut and highlight the region being hovered over
+                          rememberFill = color(hashFreqs[d.properties.name]) || "white";
+                          return "orange";
+                      })
+
+              })
+              .on("mouseout", function (d) {
+                  let countryName = d.properties.name;
+                  d3.select(this)
+                      .attr("fill", function(){
+                          // if the country was clicked on when the mouse was over the country, update the country to blue
+                          if (selectedCountries().includes(countryName)){
+                             return "blue";
+                          }
+                          return rememberFill;
+                  });
+              });
+
+        //create the stacked bar charts based on selected countries////////////////////////////////////////
+
+        if (selectedCountries().length !== 0){
+
+          barchart = d3.select(".barchart")
+            .append("svg")
+            .attr("width", 500)
+            .attr("height", 400);
+
+
+          const heightOfBar = 35;
+          const fullSpan = 300;
+          const downScreen = 10;
+          const leftSide = 10;
+          const barStart = leftSide + 100;
+
+          var i = 0;
+          var numCountries = 0;
+
+          // loop thru the the selected frequency objects
+          const countryKeys = Object.keys(totalFreqs);
+
+          //find the maximum total medals and count the number of coutries
+          var maxMedals = 0;
+          for (const countryKey of countryKeys){
+            numCountries += 1;
+            if (totalFreqs[countryKey] > maxMedals){
+             maxMedals = totalFreqs[countryKey];
+            }
+          }
+
+
+          //add to the svg for each country
+          for (const countryKey of countryKeys){
+
+            //if the country has no medals won, we cannot display any bars, so add in replacement text
+            if (totalFreqs[countryKey] == 0){
+
+
+
+              barchart.append("text")
+                  .attr("x", barStart)
+                  .attr("y", function () {
+                      return downScreen + i * (heightOfBar + 5) + (heightOfBar / 2);
+                  })
+                  .style("fill", "black")
+                  .text("No Medals Won")
+                  .attr("text-anchor", "left")
+                  .style("alignment-baseline", "middle");
+
+            } else {
+
+              //add in a bar for bronzes attained
+                barchart.append("rect")
+                    .attr("x", barStart)
+                    .attr("y", function () {
+                        return downScreen + i * (heightOfBar + 5)
+                    })
+                    .attr("width", (bronzeFreqs[countryKey]/maxMedals * fullSpan))
+                    .attr("height", heightOfBar)
+                    .style("fill", "#cd7f32")
+                    .style("stroke", "black")
+                    .style("stroke-width", 0.1);
+
+              //add in a bar for silvers attained
+                barchart.append("rect")
+                    .attr("x", function(){
+                        return barStart + (bronzeFreqs[countryKey]/maxMedals * fullSpan)
+                    })
+                    .attr("y", function () {
+                        return downScreen + i * (heightOfBar + 5)
+                    })
+                    .attr("width", (silverFreqs[countryKey]/maxMedals * fullSpan))
+                    .attr("height", heightOfBar)
+                    .style("fill", "silver")
+                    .style("stroke", "black")
+                    .style("stroke-width", 0.1);
+
+              //add in a bar for golds attained
+                barchart.append("rect")
+                    .attr("x", function(){
+                        return barStart + (bronzeFreqs[countryKey]/maxMedals * fullSpan) + (silverFreqs[countryKey]/maxMedals * fullSpan);
+                    })
+                    .attr("y", function () {
+                        return downScreen + i * (heightOfBar + 5)
+                    })
+                    .attr("width", (goldFreqs[countryKey]/maxMedals * fullSpan))
+                    .attr("height", heightOfBar)
+                    .style("fill", "gold")
+                    .style("stroke", "black")
+                    .style("stroke-width", 0.1);
+
+
+
+            }
+
+            //put the country name to the left of its respective bar
+            barchart.append("text")
+              .attr("x", leftSide)
+              .attr("y", function(){return downScreen + i * (heightOfBar + 5) + (heightOfBar / 2)})
+              .style("fill", "black")
+              .attr("text-anchor", "left")
+              .style("alignment-baseline", "middle")
+              .text(function(){
+              //only a limited amount of characters can be shown for the country name
+              if (countryKey.length <= 1){
+                return countryKey;
+              } else {
+                return countryKey.slice(0,13);
+              }
+              })
+              .style("font-size", "15px");
+
+            //increment the counter variable so things can be placed further down the screen
+            i = i + 1;
+          }
+
+          //create a rectangle to outline the data
+          barchart.append("rect")
+               .attr("x", leftSide)
+               .attr("y", function () {
+                   return downScreen - 3;
+               })
+               .attr("width", fullSpan + 100 + 10)
+               .attr("height", heightOfBar + (numCountries * (heightOfBar + 5)) - heightOfBar + 35)
+               .style("fill", "none")
+               .style("stroke", "black")
+               .style("stroke-width", 0.5)
+              .style("opacity", 0.25);
+
+
+          //create a linear scale so that we can see how many medals there are for each country
+
+          xDomain = [];
+          xRange = [];
+
+          for (var i = 0; i <= maxMedals; i++){
+            //only store ten values so that the numbers can be reasonably displayed
+            if (i/maxMedals >= xDomain.length * 0.1){
+              xDomain.push(i);
+              xRange.push(i/maxMedals * fullSpan + barStart);
+            }
+
+          }
+
+          //create the scale
+          var xScale = d3.scaleOrdinal()
+              .domain(xDomain)
+              .range(xRange);
+
+          var hVal = downScreen + heightOfBar + (numCountries * (heightOfBar + 5)) - heightOfBar + 5;
+
+          //display the scale
+          barchart.append("g")
+              .attr("transform", "translate(0," + hVal + ")")
+              .call(d3.axisBottom(xScale));
+
+            let timeseriesData = generateTimeseriesData();
+            if (timeseriesData) {
+                generateTimeseries(timeseriesData);
+                generateTimeseriesLegend(timeseriesData);
+            }
+        }
+      }
+
+      function generateTimeseries(timeseriesData) {
+          let width = 600;
+          let height = 300;
+
+          let medalCounts = timeseriesData.flatMap((timeseriesDatum) =>
+              timeseriesDatum.data.map(datapoint => datapoint.y)
+          );
+          let maxMedalCount = Math.max(...medalCounts);
+          let minMedalCount = Math.min(...medalCounts);
+
+          timeseries = d3.select(".timeseries")
+              .append("svg")
+              .attr("width", 500)
+              .attr("height", height);
+
+          let xAxis = d3.scaleLinear()
+              .domain([selectedStartYear, selectedEndYear])
+              .range([0, width - 150]);
+
+          timeseries.append("g")
+              .attr("transform", "translate(30,260)")
+              .call(d3.axisBottom(xAxis));
+
+          let yAxis = d3.scaleLinear()
+              .domain([maxMedalCount, minMedalCount])
+              .range([0, height - 50]);
+
+          timeseries.append("g")
+              .attr("transform", "translate(30,10)")
+              .call(d3.axisLeft(yAxis));
+
+          timeseriesData.forEach((timeseriesDatum) => {
+              timeseries.append("path")
+                  .datum(timeseriesDatum.data)
+                  .attr("fill", "none")
+                  .attr("stroke", (d) => timeseriesDatum.color)
+                  .attr("stroke-width", 3)
+                  .attr("d", d3.line()
+                      .x(function(d) { return xAxis(d.x) })
+                      .y(function(d) { return yAxis(d.y) })
+                  )
+                  .attr("transform", "translate(30, 10)");
+          });
+
+          timeseries.append("g")
+              .attr("transform", "translate(30,10)")
+              .call(d3.axisLeft(yAxis));
+
+      }
+
+      function generateTimeseriesData() {
+          let colors = ['#3869b1', '#da7e30', '#3f9852', '#cc2428', '#535055', '#6b4c9a'];
+          let countries = [...new Set(selectedData().map((data) => hashCodeToCountry[data['NOC']]))];
+          return countries.map((country) => {
+             let countryData = {};
+             selectedData().forEach((data) => {
+                 let year = Number(data['Edition']);
+                 if (hashCodeToCountry[data['NOC']] === country) {
+                     if (!countryData[year]) {
+                         countryData[year] = 0;
+                     }
+                     countryData[data['Edition']] += 1;
+                 }
+             });
+             let minCountryYear = Math.min(...(Object.keys(countryData).map((key) => Number(key))));
+             let maxCountryYear = Math.max(...(Object.keys(countryData).map((key) => Number(key))));
+             let coords = [];
+             for (let i = minCountryYear; i <= maxCountryYear; i += 4) {
+                 coords.push({
+                     x: i,
+                     y: countryData[i] || 0
+                 })
+             }
+             return {
+                 country: country,
+                 data: coords,
+                 color: colors.shift()
+             };
+          });
+      }
+
+      function generateTimeseriesLegend(timeseriesData) {
+
+          let width = 600;
+          let height = 300;
+
+          let textMarginLeft = 30;
+          let initialMarginTop = 20;
+          let textMarginTop = 30;
+          let legendBoxWidth = 20;
+
+
+
+          timeseriesLegend = d3.select(".timeseries-legend")
+              .append("svg")
+              .attr("width", width)
+              .attr("height", height);
+
+          for (let i = 0; i < timeseriesData.length; i++) {
+              timeseriesLegend.append("text")
+                  .attr("x", textMarginLeft)
+                  .attr("y", () => {
+                      return i * textMarginTop + initialMarginTop;
+                  })
+                  .style("fill", "black")
+                  .text(timeseriesData[i]['country'])
+                  .attr("text-anchor", "left")
+                  .style("alignment-baseline", "middle");
+              timeseriesLegend.append("rect")
+                  .attr("x", 2)
+                  .attr("y", () => {
+                      return i * textMarginTop + initialMarginTop - legendBoxWidth / 2;
+                  })
+                  .attr("width", legendBoxWidth)
+                  .attr("height", legendBoxWidth)
+                  .style("fill", () => {
+                      return timeseriesData[i]['color'];
+                  })
+                  .style("stroke", "black")
+                  .style("stroke-width", 0.5);
+          }
+
+      }
+
+
+      /* The following 5 functions for computing percentiles of js arrays of numbers was found at
+      the URL https://stackoverflow.com/questions/48719873/how-to-get-median-and-quartiles-percentiles-of-an-array-in-javascript-or-php
+      All credit for the following 5 functions belongs to the author of this code: "philippe" */
+      function Quartile(data, q) {
+          data = Array_Sort_Numbers(data);
+          var pos = ((data.length) - 1) * q;
+          var base = Math.floor(pos);
+          var rest = pos - base;
+          if ((data[base + 1] !== undefined)) {
+              return data[base] + rest * (data[base + 1] - data[base]);
+          } else {
+              return data[base];
+          }
+      }
+
+      function Array_Sort_Numbers(inputarray) {
+          return inputarray.sort(function (a, b) {
+              return a - b;
+          });
+      }
+
+      function Array_Sum(t) {
+          return t.reduce(function (a, b) {
+              return a + b;
+          }, 0);
+      }
+
+      function Array_Average(data) {
+          return Array_Sum(data) / data.length;
+      }
+
+      function Array_Stdev(tab) {
+          var i, j, total = 0, mean = 0, diffSqredArr = [];
+          for (i = 0; i < tab.length; i += 1) {
+              total += tab[i];
+          }
+          mean = total / tab.length;
+          for (j = 0; j < tab.length; j += 1) {
+              diffSqredArr.push(Math.pow((tab[j] - mean), 2));
+          }
+          return (Math.sqrt(diffSqredArr.reduce(function (firstEl, nextEl) {
+              return firstEl + nextEl;
+          }) / tab.length));
+      }
+      /* End of Attributed Code */
+
+      ko.applyBindings();
+
+    </script>
+</body>
+
+</html>
